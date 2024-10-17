@@ -6,6 +6,7 @@ from tkinter import ttk, messagebox
 import xml.etree.ElementTree as ET
 import urllib.request
 import threading
+from datetime import datetime
 
 settings_file = 'settings.json'
 
@@ -74,7 +75,7 @@ except Exception as e:
 
 root_window = tk.Tk()
 root_window.title("Podcast Feed")
-root_window.geometry("940x700")
+root_window.geometry("940x830")
 root_window.resizable(False, False)
 style = ttk.Style(root_window)
 style.theme_use('clam')
@@ -82,6 +83,7 @@ style.configure("TFrame", background="#2E3440")
 style.configure("Header.TLabel", background="#2E3440", foreground="#D8DEE9", font=("Helvetica", 18, "bold"))
 style.configure("Episode.TFrame", background="#3B4252", relief="groove", borderwidth=2)
 style.configure("TLabel", background="#3B4252", foreground="#D8DEE9", font=("Helvetica", 12))
+style.configure("Date.TLabel", background="#3B4252", foreground="#808080", font=("Helvetica", 12))
 style.configure("Download.TButton", foreground="#2E3440", background="#A3BE8C", font=("Helvetica", 10, "bold"))
 style.map("Download.TButton",
           background=[('active', '#88C0D0')],
@@ -97,15 +99,18 @@ title_label = ttk.Label(main_frame, text="Podcast Feed", style="Header.TLabel")
 title_label.pack(pady=(0, 20))
 episodes_frame = ttk.Frame(main_frame, style="TFrame")
 episodes_frame.pack()
+
 columns = 2
 current_row = 0
 current_column = 0
 max_episodes = 8
 episode_count = 0
+
 for item in root.findall(".//item"):
     if episode_count >= max_episodes:
         break
     title = item.find("title").text
+    pub_date = item.find("pubDate").text
     media_content = item.findall("media:content", namespaces={'media': 'http://search.yahoo.com/mrss/'})
     mp3_url = None
     for media in media_content:
@@ -115,13 +120,27 @@ for item in root.findall(".//item"):
             break
     if not mp3_url:
         continue
+
+    # Extract and format the publication date
+    pub_day = ""
+    if pub_date:
+        pub_datetime = datetime.strptime(pub_date, "%a, %d %b %Y %H:%M:%S %z")
+        pub_day = pub_datetime.strftime("%d %b")  # Format to show day, month, and year
+
     filename = f"{title}.mp3"
     episode_frame = ttk.Frame(episodes_frame, style="Episode.TFrame", padding="10")
     episode_frame.grid(row=current_row, column=current_column, padx=10, pady=10, sticky="nsew")
+    
     ep_label = ttk.Label(episode_frame, text=title, wraplength=400)
-    ep_label.pack(anchor="w", pady=(0, 10))
+    ep_label.pack(anchor="w", pady=(0, 5))
+    
+    # Add publication date label
+    date_label = ttk.Label(episode_frame, text=pub_day, style="Date.TLabel")
+    date_label.pack(anchor="e", pady=(0, 10))
+    
     progress = ttk.Progressbar(episode_frame, orient="horizontal", length=400, mode="determinate", style="TProgressbar")
     progress.pack(pady=(0, 10))
+    
     if filename in settings['downloaded_files']:
         button_text = "Downloaded"
         button_state = tk.DISABLED
@@ -130,6 +149,7 @@ for item in root.findall(".//item"):
         button_text = "Download"
         button_state = tk.NORMAL
         button_style = "Download.TButton"
+    
     download_button = ttk.Button(
         episode_frame,
         text=button_text,
@@ -137,8 +157,10 @@ for item in root.findall(".//item"):
         style=button_style
     )
     download_button.pack()
+    
     if button_state == tk.NORMAL:
         download_button.config(command=lambda url=mp3_url, title=title, prog=progress, btn=download_button: threading.Thread(target=download_mp3, args=(url, title, prog, btn)).start())
+    
     episode_count += 1
     current_column += 1
     if current_column >= columns:
