@@ -10,7 +10,7 @@ import threading
 settings_file = 'settings.json'
 
 def load_settings():
-    default_settings = {"rss_feed_url": ""}
+    default_settings = {"rss_feed_url": "", "downloaded_files": []}
     if not os.path.exists(settings_file):
         with open(settings_file, "w") as f:
             json.dump(default_settings, f, indent=4)
@@ -22,6 +22,10 @@ def load_settings():
         except json.JSONDecodeError:
             messagebox.showerror("Error", "Invalid format in settings file.")
             return default_settings
+
+def save_settings(settings):
+    with open(settings_file, "w") as f:
+        json.dump(settings, f, indent=4)
 
 def download_mp3(url, title, progress, button):
     filename = f"{title}.mp3"
@@ -49,6 +53,8 @@ def download_mp3(url, title, progress, button):
                     root_window.update_idletasks()
         progress['value'] = 100
         button.config(text="Downloaded", state=tk.DISABLED, style="Downloaded.TButton")
+        settings['downloaded_files'].append(filename)
+        save_settings(settings)
     except Exception as e:
         messagebox.showerror("Error", f"Failed to download '{title}': {str(e)}")
         progress['value'] = 0
@@ -116,7 +122,7 @@ for item in root.findall(".//item"):
     ep_label.pack(anchor="w", pady=(0, 10))
     progress = ttk.Progressbar(episode_frame, orient="horizontal", length=400, mode="determinate", style="TProgressbar")
     progress.pack(pady=(0, 10))
-    if os.path.exists(filename):
+    if filename in settings['downloaded_files']:
         button_text = "Downloaded"
         button_state = tk.DISABLED
         button_style = "Downloaded.TButton"
