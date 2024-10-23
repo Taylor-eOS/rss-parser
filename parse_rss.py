@@ -8,15 +8,16 @@ import urllib.request
 import threading
 from datetime import datetime
 
-settings_file = 'settings.json'
+SETTINGS_FILE = 'settings.json'
+WINDOW_DIMENSIONS = "965x920"
 
 def load_settings():
     default_settings = {"rss_feed_url": "", "downloaded_files": []}
-    if not os.path.exists(settings_file):
-        with open(settings_file, "w") as f:
+    if not os.path.exists(SETTINGS_FILE):
+        with open(SETTINGS_FILE, "w") as f:
             json.dump(default_settings, f, indent=4)
         return default_settings
-    with open(settings_file, "r") as f:
+    with open(SETTINGS_FILE, "r") as f:
         try:
             settings = json.load(f)
             return settings
@@ -25,11 +26,11 @@ def load_settings():
             return default_settings
 
 def save_settings(settings):
-    with open(settings_file, "w") as f:
+    with open(SETTINGS_FILE, "w") as f:
         json.dump(settings, f, indent=4)
 
-def download_mp3(url, title, progress, button):
-    filename = f"{title}.mp3"
+def download_mp3(url, title, progress, button, pub_day, hour_info):
+    filename = f"{pub_day.replace(' ', '')}_{hour_info.replace(' ', '').lower() if hour_info else 'o'}.mp3"
     if os.path.exists(filename):
         button.config(text="Downloaded", state=tk.DISABLED, style="Downloaded.TButton")
         return
@@ -59,7 +60,6 @@ def download_mp3(url, title, progress, button):
     except Exception as e:
         messagebox.showerror("Error", f"Failed to download '{title}': {str(e)}")
         progress['value'] = 0
-
 settings = load_settings()
 rss_feed_url = settings.get("rss_feed_url", "")
 if not rss_feed_url:
@@ -72,10 +72,9 @@ try:
 except Exception as e:
     messagebox.showerror("Error", f"Failed to fetch RSS feed: {str(e)}")
     exit(1)
-
 root_window = tk.Tk()
 root_window.title("Podcast Feed")
-root_window.geometry("940x830")
+root_window.geometry(WINDOW_DIMENSIONS)
 root_window.resizable(False, False)
 style = ttk.Style(root_window)
 style.theme_use('clam')
@@ -98,19 +97,26 @@ main_frame.pack(fill=tk.BOTH, expand=True)
 title_label = ttk.Label(main_frame, text="Podcast Feed", style="Header.TLabel")
 title_label.pack(pady=(0, 20))
 episodes_frame = ttk.Frame(main_frame, style="TFrame")
-episodes_frame.pack()
-
+episodes_frame.pack(side="left")
 columns = 2
 current_row = 0
 current_column = 0
 max_episodes = 8
 episode_count = 0
-
 for item in root.findall(".//item"):
     if episode_count >= max_episodes:
         break
     title = item.find("title").text
     pub_date = item.find("pubDate").text
+    #Check for 'Hour X' in description or content:encoded
+    hour_info = ""
+    description = item.find("description")
+    content_encoded = item.find("content:encoded")
+    text_to_search = (description.text if description is not None else "") + (content_encoded.text if content_encoded is not None else "")
+    for hour in ["Hour 1", "Hour 2", "Hour 3", "Hour 4"]:
+        if hour in text_to_search:
+            hour_info = hour
+            break
     media_content = item.findall("media:content", namespaces={'media': 'http://search.yahoo.com/mrss/'})
     mp3_url = None
     for media in media_content:
@@ -120,27 +126,23 @@ for item in root.findall(".//item"):
             break
     if not mp3_url:
         continue
-
-    # Extract and format the publication date
     pub_day = ""
     if pub_date:
         pub_datetime = datetime.strptime(pub_date, "%a, %d %b %Y %H:%M:%S %z")
-        pub_day = pub_datetime.strftime("%d %b")  # Format to show day, month, and year
-
-    filename = f"{title}.mp3"
+        pub_day = pub_datetime.strftime("%d %b")  
+    filename = f"{pub_day.replace(' ', '')}_{hour_info.replace(' ', '').lower() if hour_info else 'o'}.mp3"
     episode_frame = ttk.Frame(episodes_frame, style="Episode.TFrame", padding="10")
     episode_frame.grid(row=current_row, column=current_column, padx=10, pady=10, sticky="nsew")
-    
+    #Display the hour info before the date if found
     ep_label = ttk.Label(episode_frame, text=title, wraplength=400)
     ep_label.pack(anchor="w", pady=(0, 5))
-    
-    # Add publication date label
+    if hour_info:
+        hour_label = ttk.Label(episode_frame, text=hour_info, style="TLabel")
+        hour_label.pack(anchor="e", pady=(0, 5))
     date_label = ttk.Label(episode_frame, text=pub_day, style="Date.TLabel")
     date_label.pack(anchor="e", pady=(0, 10))
-    
     progress = ttk.Progressbar(episode_frame, orient="horizontal", length=400, mode="determinate", style="TProgressbar")
     progress.pack(pady=(0, 10))
-    
     if filename in settings['downloaded_files']:
         button_text = "Downloaded"
         button_state = tk.DISABLED
@@ -149,7 +151,6 @@ for item in root.findall(".//item"):
         button_text = "Download"
         button_state = tk.NORMAL
         button_style = "Download.TButton"
-    
     download_button = ttk.Button(
         episode_frame,
         text=button_text,
@@ -157,15 +158,92 @@ for item in root.findall(".//item"):
         style=button_style
     )
     download_button.pack()
-    
     if button_state == tk.NORMAL:
-        download_button.config(command=lambda url=mp3_url, title=title, prog=progress, btn=download_button: threading.Thread(target=download_mp3, args=(url, title, prog, btn)).start())
-    
+        download_button.config(command=lambda url=mp3_url, title=title, prog=progress, btn=download_button, day=pub_day, hour=hour_info: threading.Thread(target=download_mp3, args=(url, title, prog, btn, day, hour)).start())
     episode_count += 1
     current_column += 1
     if current_column >= columns:
         current_column = 0
         current_row += 1
 
+def next_page():
+    global episode_count, current_row, current_column, episodes_frame
+    episode_count = 0
+    current_row = 0
+    current_column = 0
+    for widget in episodes_frame.winfo_children():
+        widget.destroy()
+    start_index = (page_number * max_episodes)
+    end_index = start_index + max_episodes
+    for item in root.findall(".//item")[start_index:end_index]:
+        if episode_count >= max_episodes:
+            break
+        title = item.find("title").text
+        pub_date = item.find("pubDate").text
+        #Check for 'Hour X' in description or content:encoded
+        hour_info = ""
+        description = item.find("description")
+        content_encoded = item.find("content:encoded")
+        text_to_search = (description.text if description is not None else "") + (content_encoded.text if content_encoded is not None else "")
+        for hour in ["Hour 1", "Hour 2", "Hour 3", "Hour 4"]:
+            if hour in text_to_search:
+                hour_info = hour
+                break
+        media_content = item.findall("media:content", namespaces={'media': 'http://search.yahoo.com/mrss/'})
+        mp3_url = None
+        for media in media_content:
+            url = media.get("url")
+            if "mp3" in url:
+                mp3_url = url
+                break
+        if not mp3_url:
+            continue
+        pub_day = ""
+        if pub_date:
+            pub_datetime = datetime.strptime(pub_date, "%a, %d %b %Y %H:%M:%S %z")
+            pub_day = pub_datetime.strftime("%d %b")  
+        filename = f"{pub_day.replace(' ', '')}_{hour_info.replace(' ', '').lower() if hour_info else 'o'}.mp3"
+        episode_frame = ttk.Frame(episodes_frame, style="Episode.TFrame", padding="10")
+        episode_frame.grid(row=current_row, column=current_column, padx=10, pady=10, sticky="nsew")
+        #Display the hour info before the date if found
+        ep_label = ttk.Label(episode_frame, text=title, wraplength=400)
+        ep_label.pack(anchor="w", pady=(0, 5))
+        if hour_info:
+            hour_label = ttk.Label(episode_frame, text=hour_info, style="TLabel")
+            hour_label.pack(anchor="e", pady=(0, 5))
+        date_label = ttk.Label(episode_frame, text=pub_day, style="Date.TLabel")
+        date_label.pack(anchor="e", pady=(0, 10))
+        progress = ttk.Progressbar(episode_frame, orient="horizontal", length=400, mode="determinate", style="TProgressbar")
+        progress.pack(pady=(0, 10))
+        if filename in settings['downloaded_files']:
+            button_text = "Downloaded"
+            button_state = tk.DISABLED
+            button_style = "Downloaded.TButton"
+        else:
+            button_text = "Download"
+            button_state = tk.NORMAL
+            button_style = "Download.TButton"
+        download_button = ttk.Button(
+            episode_frame,
+            text=button_text,
+            state=button_state,
+            style=button_style
+        )
+        download_button.pack()
+        if button_state == tk.NORMAL:
+            download_button.config(command=lambda url=mp3_url, title=title, prog=progress, btn=download_button, day=pub_day, hour=hour_info: threading.Thread(target=download_mp3, args=(url, title, prog, btn, day, hour)).start())
+        episode_count += 1
+        current_column += 1
+        if current_column >= columns:
+            current_column = 0
+            current_row += 1
+
+def next_page_handler():
+    global page_number
+    page_number += 1
+    next_page()
+page_number = 0
+next_button = ttk.Button(main_frame, text=">", command=next_page_handler)
+next_button.pack(side="right", padx=10, pady=10, anchor="ne")
 root_window.mainloop()
 
